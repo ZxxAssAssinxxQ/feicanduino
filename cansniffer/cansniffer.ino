@@ -1,86 +1,57 @@
-// demo: CAN-BUS Shield, receive data with interrupt mode
-// when in interrupt mode, the data coming can't be too fast, must >20ms, or else you can use check mode
-// loovee, 2014-6-13
-
 #include <SPI.h>
-#include "mcp_can.h"
+#include <mcp2515.h>
 
-/*SAMD core*/
-#ifdef ARDUINO_SAMD_VARIANT_COMPLIANCE
-#define SERIAL SerialUSB
-#else
-#define SERIAL Serial
-#endif
-
-// the cs pin of the version after v1.1 is default to D9
-// v0.9b and v1.0 is default D10
-const int SPI_CS_PIN = 10;
-const int CAN_INT_PIN = 2;
-
-MCP_CAN CAN(SPI_CS_PIN);                                    // Set CS pin
+struct can_frame canMsgs;
+struct can_frame canMsgr;
+MCP2515 mcp2515(10);
 
 
-unsigned char flagRecv = 0;
-unsigned char len = 0;
-unsigned char buf[8];
-char str[20];
+void setup() {
+  Serial.begin(115200);
+  SPI.begin();
+  
+  mcp2515.reset();
+  mcp2515.setBitrate(CAN_250KBPS);
+  mcp2515.setNormalMode();
+  
+  Serial.println("------- CAN Read ----------");
+  Serial.println("ID  DLC   DATA");
 
-void setup()
-{
-  SERIAL.begin(115200);
-  while (!SERIAL) {
-    ; // wait for serial port to connect. Needed for native USB port only
-  }
-  while (CAN_OK != CAN.begin(CAN_250KBPS))              // init can bus : baudrate = 500k
-  {
-    SERIAL.println("CAN BUS Shield init fail");
-    SERIAL.println(" Init CAN BUS Shield again");
-    delay(100);
-  }
-  SERIAL.println("CAN BUS Shield init ok!");
-
-  attachInterrupt(digitalPinToInterrupt(CAN_INT_PIN), MCP2515_ISR, FALLING); // start interrupt
+  canMsgs.can_id  = 0x61A;
+  canMsgs.can_dlc = 8;
+  canMsgs.data[0] = 0x40;
+  canMsgs.data[1] = 0x09;
+  canMsgs.data[2] = 0x10;
+  canMsgs.data[3] = 0x00;
+  canMsgs.data[4] = 0x00;
+  canMsgs.data[5] = 0x00;
+  canMsgs.data[6] = 0x00;
+  canMsgs.data[7] = 0x00;
 }
 
-void MCP2515_ISR()
-{
-  flagRecv = 1;
-}
-
-void loop()
-{
-  if (flagRecv)
-  { // check if get data
-
-    flagRecv = 0;                   // clear flag
-
-    // iterate over all pending messages
-    // If either the bus is saturated or the MCU is busy,
-    // both RX buffers may be in use and reading a single
-    // message does not clear the IRQ conditon.
-    while (CAN_MSGAVAIL == CAN.checkReceive())
-    {
-      unsigned long canId = CAN.getCanId();
-
-      SERIAL.println("-----------------------------");
-      SERIAL.print("Get data from ID: 0x");
-      SERIAL.println(canId, HEX);
+void loop() {
+  
+  if (mcp2515.readMessage(&canMsgr) == MCP2515::ERROR_OK && canMsgr.can_id != 1207 && canMsgr.can_id != 0x242 && canMsgr.can_id != 0x237) {
       
-      // read data,  len: data length, buf: data buf
-      CAN.readMsgBuf(&len, buf);
+    Serial.print(canMsgr.can_id, HEX); // print ID
+    Serial.print(" "); 
+    Serial.print(canMsgr.can_dlc, HEX); // print DLC
+    Serial.print(" ");
+    
+    for (int i = 0; i<canMsgr.can_dlc; i++)  {  // print the data
+        
+      Serial.print(canMsgr.data[i],HEX);
+      Serial.print(" ");
 
-      // print the data
-      for (int i = 0; i < len; i++)
-      {
-        SERIAL.print(buf[i], HEX);
-        SERIAL.print("\t");
-      }
-      flagRecv = 0;
-      SERIAL.println();
     }
-  }
-}
 
-/*********************************************************************************************************
-  END FILE
-*********************************************************************************************************/
+    Serial.println();      
+  }
+
+  if(Serial.available() > 0) {
+    Serial.read();
+    mcp2515.sendMessage(&canMsgs);
+    Serial.println("Message Sent!");
+  }
+
+}
